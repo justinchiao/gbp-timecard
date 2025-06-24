@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Worked Hours - GBP Timesheet</title>
+    <style>
+        table, th, td {
+            border: 1px solid white;
+            border-collapse: collapse;
+        }
+        th, td {
+            padding: 8px;
+        }
+    </style>
+</head>
+<body style="background-color: green; color: white;">
+    <h2>Worked Hours Summary</h2>
+    <a href="/view_hours"><button>Back</button></a>
+    <form method="POST" style="display: inline-flex; padding-left: 15px;">
+        <br>
+        <button type="submit" name="submit_button" value="logout">Logout</button>
+    </form>
+
+    <table style="margin-top: 20px;">
+        <thead>
+            <tr>
+                <th>Student ID</th>
+                <th>Name</th>
+                <th>Total Minutes</th>
+                <th>Total Hours</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in data %}
+            <tr>
+                <td>{{ row.student_id }}</td>
+                <td>{{ row.name }}</td>
+                <td>{{ "%.2f"|format(row.minutes) }}</td>
+                <td>{{ "%.2f"|format(row.hours) }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    
+</body>
+</html>
