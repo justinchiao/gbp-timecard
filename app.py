@@ -1,9 +1,20 @@
-from flask import Flask, render_template, request, redirect, url_for, make_response
-import pandas as pd
 import datetime as dt
+from flask import Flask, render_template, request, redirect, url_for, make_response
+from waitress import serve
+import pandas as pd
+import gspread
+from google.oauth2.service_account import Credentials
 
 app = Flask(__name__)
 ADMIN_PASSWORD = 'a'
+
+# google sheets setup
+scope = ['https://www.googleapis.com/auth/spreadsheets']
+creds = Credentials.from_service_account_file('cred.json', scopes=scope)
+client = gspread.authorize(creds)
+
+staff_key='1i2zzjM0DNfcaXMsKsivN99xPn9hgJrvaw08S8_oRO-E'
+time_key='1PYtJKFJh1OCno3YHexR17fMXM3txfAQZwJPf_64-SM0'
 
 @app.route('/')
 def home():
@@ -12,37 +23,35 @@ def home():
 @app.route('/clock', methods=['POST'])
 def clock():
     student_id = request.form['student_id']
-    staff = pd.read_csv('staff.csv')
-    timesheet = pd.read_csv('time.csv')
+    staff_sheet = client.open_by_key(staff_key).sheet1
+    time_sheet = client.open_by_key(time_key).sheet1
+    staff = pd.DataFrame(staff_sheet.get_all_records())
+    print(staff)
+    timesheet = pd.DataFrame(time_sheet.get_all_records())
+    print(timesheet)
     timesheet['in'] = pd.to_datetime(timesheet['in'])
 
     if student_id not in staff['student_id'].values:
         return redirect(url_for('home', message='Invalid ID: Please add staff member'))
 
     name = staff[staff['student_id'] == student_id]['name'].values[0]
-    open_entries = timesheet[(timesheet['student_id'] == student_id) & (timesheet['out'].isna())]
+    open_entries = timesheet[(timesheet['student_id'] == student_id) & (timesheet['out'] == '')]
+    print(open_entries)
 
     if open_entries.empty:
-        new_row = pd.DataFrame([{
-            'student_id': student_id,
-            'name': name,
-            'in': dt.datetime.now(),
-            'out': pd.NaT,
-            'minutes': pd.NaT,
-            'hours': pd.NaT
-        }])
-        timesheet = pd.concat([timesheet, new_row], ignore_index=True)
+        time_sheet.append_row([student_id, name, dt.datetime.now().strftime('%m/%d/%Y, %H:%M:%S'),'','','',])
         message = "Successfully Clocked In"
     else:
-        idx = open_entries['in'].idxmax()
-        now = dt.datetime.now()
-        timesheet.loc[idx, 'out'] = now
-        minutes = (now - timesheet.loc[idx, 'in']) / pd.Timedelta(minutes=1)
-        timesheet.loc[idx, 'minutes'] = minutes
-        timesheet.loc[idx, 'hours'] = minutes / 60
+        idx = open_entries['in'].idxmax() + 2
+        print(idx)
+        minutes = (dt.datetime.now() - timesheet.loc[idx-2, 'in']) / pd.Timedelta(minutes=1)
+        hours = minutes / 60
+
+        time_sheet.update_cell(idx, 4, dt.datetime.now().strftime('%m/%d/%Y, %H:%M:%S'))
+        time_sheet.update_cell(idx, 5, minutes)
+        time_sheet.update_cell(idx, 6, hours)
         message = "Successfully Clocked Out"
 
-    timesheet.to_csv('time.csv', index=False)
     return redirect(url_for('home', message=message))
 
 @app.route('/add_staff', methods=['GET', 'POST'])
@@ -50,7 +59,8 @@ def add_staff():
     if request.method == 'POST':
         student_id = request.form['student_id']
         name = request.form['name']
-        staff = pd.read_csv('staff.csv')
+        staff_sheet = client.open_by_key(staff_key).sheet1
+        staff = pd.DataFrame(staff_sheet.get_all_records())
 
         if not student_id or not name:
             return render_template('add_staff.html', message='Fields cannot be blank')
@@ -58,8 +68,7 @@ def add_staff():
         if student_id in staff['student_id'].values:
             return render_template('add_staff.html', message='This student ID already exists')
 
-        staff.loc[len(staff)] = [student_id, name, dt.date.today()]
-        staff.to_csv('staff.csv', index=False)
+        staff_sheet.append_row([student_id, name, dt.datetime.now().strftime('%m/%d/%Y, %H:%M:%S')])
         return redirect(url_for('home', message='Staff successfully added'))
 
     return render_template('add_staff.html', message='')
@@ -115,7 +124,8 @@ def table():
         
     start = pd.to_datetime(request.args['start'])
     end = pd.to_datetime(request.args['end'])
-    timesheet = pd.read_csv('time.csv')
+    time_sheet = client.open_by_key(time_key).sheet1
+    timesheet = pd.DataFrame(time_sheet.get_all_records())
     timesheet['in'] = pd.to_datetime(timesheet['in'])
     timesheet['out'] = pd.to_datetime(timesheet['out'])
 
@@ -129,4 +139,4 @@ def table():
     return render_template('table.html', data=data.to_dict(orient='records'))
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    serve(app, host='127.0.0.1', port=5000)
